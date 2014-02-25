@@ -966,6 +966,10 @@ public class FluidNN {
 
 	// getters and setters
 
+	public Neuron[] getNeuronList() {
+		return neuronList;
+	}
+	
 	public static double getGain() {
 		return gain;
 	}

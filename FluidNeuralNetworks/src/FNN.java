@@ -8,16 +8,20 @@
  *
  */
 
-import java.util.Random;
-import java.util.Calendar;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 
 public class FNN {
 
 	// for random numbers in all classes
 	public static Random rand = new Random();
-
 
 	public static int iteration;
 	public static int numIterations;
@@ -111,64 +115,128 @@ public class FNN {
 		double sumNeighborActivationsThreshold = 0.0;
 
 
-		// headings for data ouput
-		System.out.printf("                                                                            prob        prob        prob        prob        active as    moves as  \n");	
-		System.out.printf(" lat                  spont-act    spont-act     average      average       0/0         0/1         1/0         1/1          perc of      perc of  \n");	
-		System.out.printf("size   density  gain    level         prob       entropy    info trans      pair        pair        pair        pair          opps         active  \n");	
-
-
-		// all lattice size values
-		for (int latticeSizeIndex = 0 ; latticeSizeIndex < latticeSizes.length ; ++latticeSizeIndex ) {
-
-			latticeSize = latticeSizes[latticeSizeIndex];
-
-
-			// all density values
-			for (int densityIndex = 0 ; densityIndex < densities.length ; ++densityIndex) {
-
-				density = densities[densityIndex];
-				numNeurons = (int) ((latticeSize * latticeSize) * density);
-
-
-				// all gain values
-				for (int gainIndex = 0 ; gainIndex < gains.length ; ++gainIndex ) {
-
-					gain = gains[gainIndex];
-
-
-					// all spontaneous activation levels
-					for (int spontActLevelIndex = 0 ; spontActLevelIndex < spontActLevels.length ; ++spontActLevelIndex ) {
-
-						spontActLevel = spontActLevels[spontActLevelIndex];
-
-
-						// all spontaneous activation probabilities
-						for (int spontActProbIndex = 0 ; spontActProbIndex < spontActProbs.length ; ++spontActProbIndex ) {
-
-							spontActProb = spontActProbs[spontActProbIndex];
-
-							runExperiment(numRuns, latticeSize, density,
-									numNeurons, gain, spontActLevel,
-									spontActProb, activationThreshold,
-									sumNeighborActivationsThreshold);	
-
-
-						}
-
-
-					}
-
-				}
-
-			}
-
-		}
+		runExperiment2(numRuns, latticeSize, density, numNeurons, gain, spontActLevel,
+					   spontActProb, activationThreshold, sumNeighborActivationsThreshold);
+		
+//		// headings for data ouput
+//		System.out.printf("                                                                            prob        prob        prob        prob        active as    moves as  \n");	
+//		System.out.printf(" lat                  spont-act    spont-act     average      average       0/0         0/1         1/0         1/1          perc of      perc of  \n");	
+//		System.out.printf("size   density  gain    level         prob       entropy    info trans      pair        pair        pair        pair          opps         active  \n");
+//		
+//		// all lattice size values
+//		for (int latticeSizeIndex = 0 ; latticeSizeIndex < latticeSizes.length ; ++latticeSizeIndex ) {
+//
+//			latticeSize = latticeSizes[latticeSizeIndex];
+//
+//
+//			// all density values
+//			for (int densityIndex = 0 ; densityIndex < densities.length ; ++densityIndex) {
+//
+//				density = densities[densityIndex];
+//				numNeurons = (int) ((latticeSize * latticeSize) * density);
+//
+//
+//				// all gain values
+//				for (int gainIndex = 0 ; gainIndex < gains.length ; ++gainIndex ) {
+//
+//					gain = gains[gainIndex];
+//
+//
+//					// all spontaneous activation levels
+//					for (int spontActLevelIndex = 0 ; spontActLevelIndex < spontActLevels.length ; ++spontActLevelIndex ) {
+//
+//						spontActLevel = spontActLevels[spontActLevelIndex];
+//
+//
+//						// all spontaneous activation probabilities
+//						for (int spontActProbIndex = 0 ; spontActProbIndex < spontActProbs.length ; ++spontActProbIndex ) {
+//
+//							spontActProb = spontActProbs[spontActProbIndex];
+//
+//							runExperiment(numRuns, latticeSize, density,
+//									numNeurons, gain, spontActLevel,
+//									spontActProb, activationThreshold,
+//									sumNeighborActivationsThreshold);	
+//
+//
+//						}
+//
+//
+//					}
+//
+//				}
+//
+//			}
+//
+//		}
 
 
 		System.out.println("\n\nDONE");			
 
 	}
 
+
+	private static void runExperiment2(int numRuns, int latticeSize,
+			double density, int numNeurons, double gain, double spontActLevel,
+			double spontActProb, double activationThreshold,
+			double sumNeighborActivationsThreshold) {
+		
+		// for testing purpose
+		numRuns = 10;
+		latticeSize = 9;
+		density = 0.3;
+		numNeurons = (int) ((latticeSize * latticeSize) * density);
+		gain = 0.3;
+		spontActLevel = 0.2;
+		spontActProb = 1e-5;
+		
+		
+		Map<List<Integer>, Integer> activeInactiveGlobalHistory = new HashMap<List<Integer>, Integer>();
+		
+		for (int run = 0; run < numRuns; ++run) {
+			numIterations = 11000;
+			numIterationsDiscarded = 1000;
+			numIterationsDataCollection = numIterations - numIterationsDiscarded;
+			firstIterationDataCollection = numIterationsDiscarded + 1;
+			
+			FluidNN fnn = new FluidNN(latticeSize, latticeSize, numNeurons, gain, sumNeighborActivationsThreshold,
+					activationThreshold, spontActLevel, spontActProb);
+			
+			for (iteration = 0; iteration < numIterations; ++iteration) {
+				fnn.moveAndUpdateNeurons(Topology.FNN_MOORE, SelfModel.INCLUDE_SELF, FNN_BoundaryModel.LATTICE, 
+										 FNN_ActivityModel.ALL_NEURONS);
+			}
+			Neuron[] neurons = fnn.getNeuronList();
+			for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
+				
+				List<Integer> activeInactiveLocalHistory = convertToIntegerList(neurons[neuronIndex].getActiveInactiveHistory());
+				if (activeInactiveGlobalHistory.containsKey(activeInactiveLocalHistory)) {
+					activeInactiveGlobalHistory.put(activeInactiveLocalHistory, activeInactiveGlobalHistory.get(activeInactiveLocalHistory)+1);
+				} else {
+					activeInactiveGlobalHistory.put(activeInactiveLocalHistory, 1);
+				}
+			}
+		}
+		printMap(activeInactiveGlobalHistory);
+	}
+
+	public static void printMap(Map mp) {
+	    Iterator it = mp.entrySet().iterator();
+	    while (it.hasNext()) {
+	        Map.Entry pairs = (Map.Entry)it.next();
+	        System.out.println(pairs.getKey() + " = " + pairs.getValue());
+	        it.remove(); // avoids a ConcurrentModificationException
+	    }
+	}
+	
+	private static List<Integer> convertToIntegerList(int[] intList) {
+		Integer[] IntegerList = new Integer[intList.length];
+		for (int i = 0; i < intList.length; ++ i) {
+			IntegerList[i] = Integer.valueOf(intList[i]);
+		}
+		
+		return Arrays.asList(IntegerList);
+	}
 
 	private static void runExperiment(int numRuns, int latticeSize,
 			double density, int numNeurons, double gain, double spontActLevel,
@@ -203,7 +271,7 @@ public class FNN {
 					activationThreshold, spontActLevel, spontActProb);
 
 
-			for (iteration = 1 ; iteration <= 11000 ; ++iteration) {
+			for (iteration = 1 ; iteration <= numIterations ; ++iteration) {
 
 				fnn.moveAndUpdateNeurons(Topology.FNN_MOORE, SelfModel.INCLUDE_SELF, FNN_BoundaryModel.LATTICE, FNN_ActivityModel.ALL_NEURONS);
 				int numActiveNeurons = fnn.numActiveNeurons();
