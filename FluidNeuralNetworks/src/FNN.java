@@ -182,22 +182,25 @@ public class FNN {
 			double sumNeighborActivationsThreshold) {
 		
 		// for testing purpose
-		numRuns = 10;
+		numRuns = 100;
 		latticeSize = 9;
-		density = 0.3;
+		density = 0.319;
 		numNeurons = (int) ((latticeSize * latticeSize) * density);
 		gain = 0.3;
 		spontActLevel = 0.2;
 		spontActProb = 1e-5;
 		
 		
-		Map<List<Integer>, Integer> activeInactiveGlobalHistory = new HashMap<List<Integer>, Integer>();
+		Map<List<Integer>, Integer> fullActiveInactiveGlobalHistory = new HashMap<List<Integer>, Integer>();
+		Map<List<Integer>, Integer> kPastActiveInactiveGlobalHistory = new HashMap<List<Integer>, Integer>();
+		Map<Integer, Integer> lastStateActiveInactiveGlobalHistory = new HashMap<Integer, Integer>();
+		
+		numIterations = 11000;
+		numIterationsDiscarded = 1000;
+		numIterationsDataCollection = numIterations - numIterationsDiscarded;
+		firstIterationDataCollection = numIterationsDiscarded + 1;
 		
 		for (int run = 0; run < numRuns; ++run) {
-			numIterations = 11000;
-			numIterationsDiscarded = 1000;
-			numIterationsDataCollection = numIterations - numIterationsDiscarded;
-			firstIterationDataCollection = numIterationsDiscarded + 1;
 			
 			FluidNN fnn = new FluidNN(latticeSize, latticeSize, numNeurons, gain, sumNeighborActivationsThreshold,
 					activationThreshold, spontActLevel, spontActProb);
@@ -208,25 +211,81 @@ public class FNN {
 			}
 			Neuron[] neurons = fnn.getNeuronList();
 			for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
+				Neuron neuron = neurons[neuronIndex];
+				int[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActiveInactiveHistory(), 0, neuron.getActiveInactiveHistory().length - 1);
+				int[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
 				
-				List<Integer> activeInactiveLocalHistory = convertToIntegerList(neurons[neuronIndex].getActiveInactiveHistory());
-				if (activeInactiveGlobalHistory.containsKey(activeInactiveLocalHistory)) {
-					activeInactiveGlobalHistory.put(activeInactiveLocalHistory, activeInactiveGlobalHistory.get(activeInactiveLocalHistory)+1);
-				} else {
-					activeInactiveGlobalHistory.put(activeInactiveLocalHistory, 1);
-				}
+				Integer lastStateActiveInactive = Integer.valueOf(activeInactiveHistory[activeInactiveHistory.length - 1]);
+				List<Integer> fullActiveInactiveLocalHistory = convertToIntegerList(activeInactiveHistory);
+				List<Integer> kPastActiveInactiveLocalHistory = convertToIntegerList(kPastActiveInactiveHistory);
+				updateMap(fullActiveInactiveGlobalHistory, fullActiveInactiveLocalHistory);
+				updateMap(kPastActiveInactiveGlobalHistory, kPastActiveInactiveLocalHistory);
+				updateMap(lastStateActiveInactiveGlobalHistory, lastStateActiveInactive);
 			}
 		}
-		printMap(activeInactiveGlobalHistory);
+		
+		double totalAIS = 0;
+		
+		for (int run = 0; run < numRuns; ++run) {
+			FluidNN fnn = new FluidNN(latticeSize, latticeSize, numNeurons, gain, sumNeighborActivationsThreshold,
+					activationThreshold, spontActLevel, spontActProb);
+			
+			for (iteration = 0; iteration < numIterations; ++iteration) {
+				fnn.moveAndUpdateNeurons(Topology.FNN_MOORE, SelfModel.INCLUDE_SELF, FNN_BoundaryModel.LATTICE, 
+										 FNN_ActivityModel.ALL_NEURONS);
+			}
+			Neuron[] neurons = fnn.getNeuronList();
+			double AIS = 0;
+			for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
+				Neuron[] neuronList = fnn.getNeuronList();
+				Neuron neuron = neuronList[neuronIndex];
+				
+				AIS += localActiveInformationStorage(neuron, fullActiveInactiveGlobalHistory, 
+						kPastActiveInactiveGlobalHistory, lastStateActiveInactiveGlobalHistory);
+			}
+			totalAIS += AIS / numNeurons;
+		}
+		
+		System.out.println("Average AIS = " + totalAIS/numRuns) ;
+		//printMap(lastStateActiveInactiveGlobalHistory);
 	}
 
-	public static void printMap(Map mp) {
+	private static void updateMap(Map<List<Integer>, Integer> mp, List<Integer> key) {
+		if (mp.containsKey(key)) {
+			mp.put(key, mp.get(key) + 1);
+		} else {
+			mp.put(key, 1);
+		}
+	}
+
+	
+	private static void updateMap(Map<Integer, Integer> mp, Integer key) {
+		if (mp.containsKey(key)) {
+			mp.put(key, mp.get(key) + 1);
+		} else {
+			mp.put(key, 1);
+		}
+	}
+	
+	
+	private static void printMap(Map mp) {
 	    Iterator it = mp.entrySet().iterator();
 	    while (it.hasNext()) {
 	        Map.Entry pairs = (Map.Entry)it.next();
 	        System.out.println(pairs.getKey() + " = " + pairs.getValue());
 	        it.remove(); // avoids a ConcurrentModificationException
 	    }
+	}
+	
+	private static int sumValues (Map mp) {
+	    Iterator it = mp.entrySet().iterator();
+	    int sum = 0;
+	    while (it.hasNext()) {
+	        Map.Entry pairs = (Map.Entry)it.next();
+	        sum += (Integer) pairs.getValue();
+	        it.remove(); // avoids a ConcurrentModificationException
+	    }
+	    return sum;
 	}
 	
 	private static List<Integer> convertToIntegerList(int[] intList) {
@@ -238,6 +297,7 @@ public class FNN {
 		return Arrays.asList(IntegerList);
 	}
 
+	
 	private static void runExperiment(int numRuns, int latticeSize,
 			double density, int numNeurons, double gain, double spontActLevel,
 			double spontActProb, double activationThreshold,
@@ -396,6 +456,25 @@ public class FNN {
 		return -entropy;
 	}
 
+	public static double localActiveInformationStorage(Neuron neuron, Map<List<Integer>, Integer> fullHistory, 
+													   Map<List<Integer>, Integer> kPastHistory, 
+													   Map<Integer, Integer> lastState) {
+		int[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActiveInactiveHistory(), 0, neuron.getActiveInactiveHistory().length - 1);
+		int[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
+		Integer lastStateActiveInactive = Integer.valueOf(activeInactiveHistory[activeInactiveHistory.length - 1]);
+		List<Integer> fullActiveInactiveLocalHistory = convertToIntegerList(activeInactiveHistory);
+		List<Integer> kPastActiveInactiveLocalHistory = convertToIntegerList(kPastActiveInactiveHistory);
+		
+		double jointKPastandPresent = fullHistory.get(fullActiveInactiveLocalHistory) == null? 
+				0 : (double) fullHistory.get(fullActiveInactiveLocalHistory) / (double) sumValues(fullHistory);
+		double probabilityKPast = kPastHistory.get(kPastActiveInactiveLocalHistory) == null? 
+				0 : (double) kPastHistory.get(kPastActiveInactiveLocalHistory) / (double) sumValues(kPastHistory);;
+		double probabilityCurrent = lastState.get(lastStateActiveInactive) == null ? 
+				0 : (double) lastState.get(lastStateActiveInactive) / (double) sumValues(lastState);
+		double res = (probabilityKPast) * (probabilityCurrent) == 0 ? 
+				0 : lg (jointKPastandPresent / ( (probabilityKPast) * (probabilityCurrent) ) );
+		return res;
+	}
 
 	// log base 2
 	public static double lg (double d) {	
