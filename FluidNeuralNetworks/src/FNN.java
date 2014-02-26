@@ -11,10 +11,7 @@
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 
 
@@ -182,74 +179,81 @@ public class FNN {
 			double sumNeighborActivationsThreshold) {
 		
 		// for testing purpose
-		numRuns = 1;
+		numRuns = 10;
 		latticeSize = 9;
-		density = 0.319;
+		density = 0.49;
 		numNeurons = (int) ((latticeSize * latticeSize) * density);
-		gain = 0.3;
+		gain = 0.2;
 		spontActLevel = 0.2;
-		spontActProb = 1e-5;
+		spontActProb = 1e-4;
 		
 		
 		History fullActiveInactiveGlobalHistory = new History();
 		History kPastActiveInactiveGlobalHistory = new History();
 		History lastStateActiveInactiveGlobalHistory = new History();
+		Stats stats = new Stats();
 		
 		numIterations = 11000;
 		numIterationsDiscarded = 1000;
 		numIterationsDataCollection = numIterations - numIterationsDiscarded;
 		firstIterationDataCollection = numIterationsDiscarded + 1;
 		
-		for (int run = 0; run < numRuns; ++run) {
+		for (int outerIteration = firstIterationDataCollection; outerIteration < numIterations; ++outerIteration) {
+			double totalAIS = 0;
+			HistoryKey activeInactiveLocalHistory;
+			HistoryKey kPastActiveInactiveLocalHistory;
+			HistoryKey lastStateLocalHistory;
 			
-			FluidNN fnn = new FluidNN(latticeSize, latticeSize, numNeurons, gain, sumNeighborActivationsThreshold,
-					activationThreshold, spontActLevel, spontActProb);
+			double[] activeInactiveHistory;
+			double[] kPastActiveInactiveHistory;
+			double lastStateHistory ;
 			
-			for (iteration = 0; iteration < numIterations; ++iteration) {
-				fnn.moveAndUpdateNeurons(Topology.FNN_MOORE, SelfModel.INCLUDE_SELF, FNN_BoundaryModel.LATTICE, 
-										 FNN_ActivityModel.ALL_NEURONS);
-			}
-			Neuron[] neurons = fnn.getNeuronList();
-			for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
-				Neuron neuron = neurons[neuronIndex];
-				int[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActiveInactiveHistory(), 0, neuron.getActiveInactiveHistory().length - 1);
-				int[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
-				int lastStateHistory = activeInactiveHistory[activeInactiveHistory.length - 1];
+			
+			for (int run = 0; run < numRuns; ++run) {
 				
-				HistoryKey activeInactiveLocalHistory = new HistoryKey(activeInactiveHistory);
-				HistoryKey kPastActiveInactiveLocalHistory = new HistoryKey(kPastActiveInactiveHistory);
-				HistoryKey lastStateLocalHistory = new HistoryKey(lastStateHistory);
+				FluidNN fnn = new FluidNN(latticeSize, latticeSize, numNeurons, gain, sumNeighborActivationsThreshold,
+						activationThreshold, spontActLevel, spontActProb);
 				
-				fullActiveInactiveGlobalHistory.put(activeInactiveLocalHistory);
-				kPastActiveInactiveGlobalHistory.put(kPastActiveInactiveLocalHistory);
-				lastStateActiveInactiveGlobalHistory.put(lastStateLocalHistory);
+				for (iteration = 0; iteration < outerIteration; ++iteration) {
+					fnn.moveAndUpdateNeurons(Topology.FNN_MOORE, SelfModel.INCLUDE_SELF, FNN_BoundaryModel.LATTICE, 
+											 FNN_ActivityModel.ALL_NEURONS);
+				}
+				Neuron[] neurons = fnn.getNeuronList();
+				for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
+					Neuron neuron = neurons[neuronIndex];
+					activeInactiveHistory = Arrays.copyOfRange(neuron.getActivationLevelHistory(), 0, neuron.getActivationLevelHistory().length - 1);
+					kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
+					lastStateHistory = activeInactiveHistory[activeInactiveHistory.length - 1];
+					stats.add(lastStateHistory);
+					
+					activeInactiveLocalHistory = new HistoryKey(activeInactiveHistory);
+					kPastActiveInactiveLocalHistory = new HistoryKey(kPastActiveInactiveHistory);
+					lastStateLocalHistory = new HistoryKey(lastStateHistory);
+					
+					fullActiveInactiveGlobalHistory.put(activeInactiveLocalHistory);
+					kPastActiveInactiveGlobalHistory.put(kPastActiveInactiveLocalHistory);
+					lastStateActiveInactiveGlobalHistory.put(lastStateLocalHistory);
+				}
+				
+				if (run == numRuns - 1) {
+					double neighborhoodSize = 3.5 * (stats.standardDeviation()) / Math.pow(stats.size(), 1/3);
+					double AIS = 0;
+							for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
+								Neuron[] neuronList = fnn.getNeuronList();
+								Neuron neuron = neuronList[neuronIndex];
+								
+								AIS += localActiveInformationStorage(neuron, fullActiveInactiveGlobalHistory, 
+										kPastActiveInactiveGlobalHistory, lastStateActiveInactiveGlobalHistory,
+										neighborhoodSize);
+							}
+					totalAIS += AIS / numNeurons;
+				}
 			}
+			System.out.println("Average AIS = " + totalAIS/numRuns) ;
 		}
 		
-		double totalAIS = 0;
-		
-		for (int run = 0; run < numRuns; ++run) {
-			FluidNN fnn = new FluidNN(latticeSize, latticeSize, numNeurons, gain, sumNeighborActivationsThreshold,
-					activationThreshold, spontActLevel, spontActProb);
-			
-			for (iteration = 0; iteration < numIterations; ++iteration) {
-				fnn.moveAndUpdateNeurons(Topology.FNN_MOORE, SelfModel.INCLUDE_SELF, FNN_BoundaryModel.LATTICE, 
-										 FNN_ActivityModel.ALL_NEURONS);
-			}
-			Neuron[] neurons = fnn.getNeuronList();
-			double AIS = 0;
-			for (int neuronIndex = 0; neuronIndex < neurons.length; ++neuronIndex) {
-				Neuron[] neuronList = fnn.getNeuronList();
-				Neuron neuron = neuronList[neuronIndex];
-				
-				AIS += localActiveInformationStorage(neuron, fullActiveInactiveGlobalHistory, 
-						kPastActiveInactiveGlobalHistory, lastStateActiveInactiveGlobalHistory);
-			}
-			totalAIS += AIS / numNeurons;
-		}
-		
-		System.out.println("Average AIS = " + totalAIS/numRuns) ;
 		//printMap(lastStateActiveInactiveGlobalHistory);
+		//lastStateActiveInactiveGlobalHistory.printHistory();
 	}
 
 	
@@ -424,26 +428,28 @@ public class FNN {
 
 	public static double localActiveInformationStorage(Neuron neuron, History fullActiveInactiveGlobalHistory, 
 													   History kPastActiveInactiveGlobalHistory, 
-													   History lastStateActiveInactiveGlobalHistory) {
-		int[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActiveInactiveHistory(), 0, neuron.getActiveInactiveHistory().length - 1);
-		int[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
-		int lastStateActiveInactive = activeInactiveHistory[activeInactiveHistory.length - 1];
+													   History lastStateActiveInactiveGlobalHistory, double neighborhoodSize) {
+		double[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActivationLevelHistory(), 0, neuron.getActivationLevelHistory().length - 1);
+		double[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
+		double lastStateActiveInactive = activeInactiveHistory[activeInactiveHistory.length - 1];
 		
 		HistoryKey activeInactiveLocalHistory = new HistoryKey(activeInactiveHistory);
 		HistoryKey kPastActiveInactiveLocalHistory = new HistoryKey(kPastActiveInactiveHistory);
 		HistoryKey lastStateLocalHistory = new HistoryKey(lastStateActiveInactive);
 		
-		Integer temp = fullActiveInactiveGlobalHistory.getCloset(activeInactiveLocalHistory);
+		Integer temp = fullActiveInactiveGlobalHistory.get(activeInactiveLocalHistory, neighborhoodSize);
 		double jointKPastandPresent = temp == null? 
-				0 : (double) temp / (double) fullActiveInactiveGlobalHistory.sumValues();
+				0 : (double) temp / (double) fullActiveInactiveGlobalHistory.getSize();
 		
-		temp = kPastActiveInactiveGlobalHistory.getCloset(kPastActiveInactiveLocalHistory);
+		temp = kPastActiveInactiveGlobalHistory.get(kPastActiveInactiveLocalHistory, neighborhoodSize);
+		
 		double probabilityKPast = temp == null? 
-				0 : (double) temp / (double) kPastActiveInactiveGlobalHistory.sumValues();
+				0 : (double) temp / (double) kPastActiveInactiveGlobalHistory.getSize();
 		
-		temp = lastStateActiveInactiveGlobalHistory.getCloset(lastStateLocalHistory);
+		temp = lastStateActiveInactiveGlobalHistory.get(lastStateLocalHistory, neighborhoodSize);
+
 		double probabilityCurrent = temp == null ? 
-				0 : (double) temp / (double) lastStateActiveInactiveGlobalHistory.sumValues();
+				0 : (double) temp / (double) lastStateActiveInactiveGlobalHistory.getSize();
 		
 		double res = (probabilityKPast) * (probabilityCurrent) == 0 ? 
 				0 : lg (jointKPastandPresent / ( (probabilityKPast) * (probabilityCurrent) ) );

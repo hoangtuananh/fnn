@@ -266,6 +266,10 @@ public class Neuron {
 		return activeInactiveHistory;
 //		return null;
 	}
+	
+	public double[] getActivationLevelHistory() {
+		return activationLevelHistory;
+	}
 
 
 }
