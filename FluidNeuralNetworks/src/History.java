@@ -36,7 +36,7 @@ public class History {
 	}
 	
 	public Integer getCloset(HistoryKey key) {
-		int d = 0;
+		int d = Integer.MAX_VALUE;
 		HistoryKey res = null;
 		int tempDistance = 0;
 		for (HistoryKey k : keys) {

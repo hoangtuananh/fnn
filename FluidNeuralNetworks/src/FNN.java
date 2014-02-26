@@ -182,7 +182,7 @@ public class FNN {
 			double sumNeighborActivationsThreshold) {
 		
 		// for testing purpose
-		numRuns = 100;
+		numRuns = 1;
 		latticeSize = 9;
 		density = 0.319;
 		numNeurons = (int) ((latticeSize * latticeSize) * density);
