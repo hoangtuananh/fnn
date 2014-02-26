@@ -191,9 +191,9 @@ public class FNN {
 		spontActProb = 1e-5;
 		
 		
-		Map<List<Integer>, Integer> fullActiveInactiveGlobalHistory = new HashMap<List<Integer>, Integer>();
-		Map<List<Integer>, Integer> kPastActiveInactiveGlobalHistory = new HashMap<List<Integer>, Integer>();
-		Map<Integer, Integer> lastStateActiveInactiveGlobalHistory = new HashMap<Integer, Integer>();
+		History fullActiveInactiveGlobalHistory = new History();
+		History kPastActiveInactiveGlobalHistory = new History();
+		History lastStateActiveInactiveGlobalHistory = new History();
 		
 		numIterations = 11000;
 		numIterationsDiscarded = 1000;
@@ -214,13 +214,15 @@ public class FNN {
 				Neuron neuron = neurons[neuronIndex];
 				int[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActiveInactiveHistory(), 0, neuron.getActiveInactiveHistory().length - 1);
 				int[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
+				int lastStateHistory = activeInactiveHistory[activeInactiveHistory.length - 1];
 				
-				Integer lastStateActiveInactive = Integer.valueOf(activeInactiveHistory[activeInactiveHistory.length - 1]);
-				List<Integer> fullActiveInactiveLocalHistory = convertToIntegerList(activeInactiveHistory);
-				List<Integer> kPastActiveInactiveLocalHistory = convertToIntegerList(kPastActiveInactiveHistory);
-				updateMap(fullActiveInactiveGlobalHistory, fullActiveInactiveLocalHistory);
-				updateMap(kPastActiveInactiveGlobalHistory, kPastActiveInactiveLocalHistory);
-				updateMap(lastStateActiveInactiveGlobalHistory, lastStateActiveInactive);
+				HistoryKey activeInactiveLocalHistory = new HistoryKey(activeInactiveHistory);
+				HistoryKey kPastActiveInactiveLocalHistory = new HistoryKey(kPastActiveInactiveHistory);
+				HistoryKey lastStateLocalHistory = new HistoryKey(lastStateHistory);
+				
+				fullActiveInactiveGlobalHistory.put(activeInactiveLocalHistory);
+				kPastActiveInactiveGlobalHistory.put(kPastActiveInactiveLocalHistory);
+				lastStateActiveInactiveGlobalHistory.put(lastStateLocalHistory);
 			}
 		}
 		
@@ -250,44 +252,8 @@ public class FNN {
 		//printMap(lastStateActiveInactiveGlobalHistory);
 	}
 
-	private static void updateMap(Map<List<Integer>, Integer> mp, List<Integer> key) {
-		if (mp.containsKey(key)) {
-			mp.put(key, mp.get(key) + 1);
-		} else {
-			mp.put(key, 1);
-		}
-	}
+	
 
-	
-	private static void updateMap(Map<Integer, Integer> mp, Integer key) {
-		if (mp.containsKey(key)) {
-			mp.put(key, mp.get(key) + 1);
-		} else {
-			mp.put(key, 1);
-		}
-	}
-	
-	
-	private static void printMap(Map mp) {
-	    Iterator it = mp.entrySet().iterator();
-	    while (it.hasNext()) {
-	        Map.Entry pairs = (Map.Entry)it.next();
-	        System.out.println(pairs.getKey() + " = " + pairs.getValue());
-	        it.remove(); // avoids a ConcurrentModificationException
-	    }
-	}
-	
-	private static int sumValues (Map mp) {
-	    Iterator it = mp.entrySet().iterator();
-	    int sum = 0;
-	    while (it.hasNext()) {
-	        Map.Entry pairs = (Map.Entry)it.next();
-	        sum += (Integer) pairs.getValue();
-	        it.remove(); // avoids a ConcurrentModificationException
-	    }
-	    return sum;
-	}
-	
 	private static List<Integer> convertToIntegerList(int[] intList) {
 		Integer[] IntegerList = new Integer[intList.length];
 		for (int i = 0; i < intList.length; ++ i) {
@@ -456,21 +422,29 @@ public class FNN {
 		return -entropy;
 	}
 
-	public static double localActiveInformationStorage(Neuron neuron, Map<List<Integer>, Integer> fullHistory, 
-													   Map<List<Integer>, Integer> kPastHistory, 
-													   Map<Integer, Integer> lastState) {
+	public static double localActiveInformationStorage(Neuron neuron, History fullActiveInactiveGlobalHistory, 
+													   History kPastActiveInactiveGlobalHistory, 
+													   History lastStateActiveInactiveGlobalHistory) {
 		int[] activeInactiveHistory = Arrays.copyOfRange(neuron.getActiveInactiveHistory(), 0, neuron.getActiveInactiveHistory().length - 1);
 		int[] kPastActiveInactiveHistory = Arrays.copyOfRange(activeInactiveHistory, 0, activeInactiveHistory.length - 1);
-		Integer lastStateActiveInactive = Integer.valueOf(activeInactiveHistory[activeInactiveHistory.length - 1]);
-		List<Integer> fullActiveInactiveLocalHistory = convertToIntegerList(activeInactiveHistory);
-		List<Integer> kPastActiveInactiveLocalHistory = convertToIntegerList(kPastActiveInactiveHistory);
+		int lastStateActiveInactive = activeInactiveHistory[activeInactiveHistory.length - 1];
 		
-		double jointKPastandPresent = fullHistory.get(fullActiveInactiveLocalHistory) == null? 
-				0 : (double) fullHistory.get(fullActiveInactiveLocalHistory) / (double) sumValues(fullHistory);
-		double probabilityKPast = kPastHistory.get(kPastActiveInactiveLocalHistory) == null? 
-				0 : (double) kPastHistory.get(kPastActiveInactiveLocalHistory) / (double) sumValues(kPastHistory);;
-		double probabilityCurrent = lastState.get(lastStateActiveInactive) == null ? 
-				0 : (double) lastState.get(lastStateActiveInactive) / (double) sumValues(lastState);
+		HistoryKey activeInactiveLocalHistory = new HistoryKey(activeInactiveHistory);
+		HistoryKey kPastActiveInactiveLocalHistory = new HistoryKey(kPastActiveInactiveHistory);
+		HistoryKey lastStateLocalHistory = new HistoryKey(lastStateActiveInactive);
+		
+		Integer temp = fullActiveInactiveGlobalHistory.getCloset(activeInactiveLocalHistory);
+		double jointKPastandPresent = temp == null? 
+				0 : (double) temp / (double) fullActiveInactiveGlobalHistory.sumValues();
+		
+		temp = kPastActiveInactiveGlobalHistory.getCloset(kPastActiveInactiveLocalHistory);
+		double probabilityKPast = temp == null? 
+				0 : (double) temp / (double) kPastActiveInactiveGlobalHistory.sumValues();
+		
+		temp = lastStateActiveInactiveGlobalHistory.getCloset(lastStateLocalHistory);
+		double probabilityCurrent = temp == null ? 
+				0 : (double) temp / (double) lastStateActiveInactiveGlobalHistory.sumValues();
+		
 		double res = (probabilityKPast) * (probabilityCurrent) == 0 ? 
 				0 : lg (jointKPastandPresent / ( (probabilityKPast) * (probabilityCurrent) ) );
 		return res;
